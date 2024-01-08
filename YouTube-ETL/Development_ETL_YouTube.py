@@ -58,7 +58,6 @@ def get_video_ids(playlist_id):
     return video_ids
     
 #Extracting video and comment details
-
 def get_video_comment_details(video_ids):
 
     video_comments_details={}
@@ -68,33 +67,16 @@ def get_video_comment_details(video_ids):
                   id=i,
                   part='snippet,contentDetails,statistics')
         response=request.execute()
-        video_details={
-            'video_id': i,
-            'video_name':response['items'][0]['snippet']['title'],
-            'video_desc':response['items'][0]['snippet']['description'],
-            'tags':','.join(response['items'][0]['snippet'].get('tags',['NA'])),
-            'published_at': datetime.strptime(response['items'][0]['snippet']['publishedAt'],'%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'),
-            'view_count':response['items'][0]['statistics']['viewCount'],
-            'like_count':response['items'][0]['statistics']['likeCount'],
-            'favorite_count':response['items'][0]['statistics']['favoriteCount'],
-            'commentcount':response['items'][0]['statistics'].get('commentCount',0),
-            'duration':response['items'][0]['contentDetails']['duration'],
-            'thumbnail':{'default_thumbnail_url' :response['items'][0]['snippet']['thumbnails'].get('default', {}).get('url', 'NA'),
-                        'high_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('high', {}).get('url', 'NA'),
-                        'maxres_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('maxres', {}).get('url', 'NA'),
-                        'medium_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('medium', {}).get('url', 'NA'),
-                        'standard_thumbnail_url' :response['items'][0]['snippet']['thumbnails'].get('standard', {}).get('url', 'NA')},
-            'caption_status':response['items'][0]['contentDetails']['caption'] }
-        #Comments
-        video_comments={}
+                #Comments
+
         try:
             request1 = youtube.commentThreads().list(
                    part="snippet, replies",
-                   maxResults=100,
+                   maxResults=10,
                    videoId=i)
     
             response1 = request1.execute()
-
+            video_comments={}
             if len(response1['items'])>0:
                 for j in range(0,len(response1['items'])):
                     comments={
@@ -105,7 +87,7 @@ def get_video_comment_details(video_ids):
                             'comment_published_at':response1['items'][j]['snippet']['topLevelComment']['snippet']['publishedAt'],
                             'comment_likes_count':response1['items'][j]['snippet']['topLevelComment']['snippet']['likeCount']
                             }
-                    video_comments['comment_'+str(j+1)]=comments
+                    video_comments['comment_id'+str(j+1)]=comments
         except:
                comments={
                             'comment_id': None,  
@@ -116,21 +98,38 @@ def get_video_comment_details(video_ids):
                             'comment_likes_count':None
                         }
                video_comments['comment_']=comments
-        
-        video_comments_details['Video' + '_' + str(video_ids.index(i) + 1)]=video_details
+    #video
+        video_details={
+            'video_id': i,
+            'video_name':response['items'][0]['snippet']['title'],
+            'video_desc':response['items'][0]['snippet']['description'],
+            'tags':','.join(response['items'][0]['snippet'].get('tags',['NA'])),
+            'published_at':response['items'][0]['snippet']['publishedAt'],
+            'view_count':response['items'][0]['statistics']['viewCount'],
+            'like_count':response['items'][0]['statistics']['likeCount'],
+            'favorite_count':response['items'][0]['statistics']['favoriteCount'],
+            'commentcount':response['items'][0]['statistics'].get('commentCount',0),
+            'duration':response['items'][0]['contentDetails']['duration'],
+            'thumbnail':{'default_thumbnail_url' :response['items'][0]['snippet']['thumbnails'].get('default', {}).get('url', 'NA'),
+                        'high_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('high', {}).get('url', 'NA'),
+                        'maxres_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('maxres', {}).get('url', 'NA'),
+                        'medium_thumbnail_url' : response['items'][0]['snippet']['thumbnails'].get('medium', {}).get('url', 'NA'),
+                        'standard_thumbnail_url' :response['items'][0]['snippet']['thumbnails'].get('standard', {}).get('url', 'NA')},
+            'caption_status':response['items'][0]['contentDetails']['caption'],
+            'comments': video_comments }
 
-        video_comments_details['video_comments'+ str(video_ids.index(i) + 1)] =video_comments
+        video_comments_details['Video_id' + '_' + str(video_ids.index(i) + 1)]=video_details
 
-        
     return video_comments_details
 #-------------------------------------------------------------
 # receiving channel id from user
 def GetChannelIds(channelID,status):
     channel_info = []
-    status.write('Connecting and scrapping data from ChannelD : ' + channelID)
+    status.write('Connecting and Extracting the data from YouTube : ' + channelID)
     channel = {}
 
     try:
+        channel['channel_id'] = channelID
         channel['channel_details']=get_channel_data(channelID)
         playlist_id = channel['channel_details']['playList_id']
         video_ids= get_video_ids(playlist_id)
@@ -148,17 +147,17 @@ def GetChannelIds(channelID,status):
 
 def MigratingDataToMongoDb(table,data):
     flag = 0
-    document = table.find_one({})
-    query = {'channel_id':document["channel_details"]["channel_id"]}
-    project = {'channel_id':1}
+    query = {'channel_details.channel_id':data[0]['channel_details']['channel_id']}
+    project = {'channel_details.channel_id':1,'_id':0}
     res = table.find(query,project)
+
     for i in res:
-        table.update_one({'channel_id':i['channel_id']},
-                         {"$set":{'channel_details':data[0]['channel_details'],
-                                  'video_details':data[0]['video_details']}})
+        table.update_one({'channel_id':i['channel_details']['channel_id']},
+                            {"$set":{'channel_details':data[0]['channel_details'],
+                                    'video_details':data[0]['video_details']}})
         flag = 1
 
-    if(flag == 0):
+    if flag == 0:
         table.insert_one(data[0])
         flag = 1
 
@@ -188,20 +187,20 @@ def parse_date(published_date):
 #-----------------------------------------------------------------------
 def AppendChannelDetails(mycursor,channel_details,isPresent):
     if (isPresent):
-        query = '''UPDATE channel SET channel_name=%s, 
-                                channel_views=%s, 
-                                channel_description=%s, 
-                                channel_subscibers=%s 
-                                where channel_id=%s'''
+        query = '''UPDATE channel SET channel_name=?, 
+                                channel_views=?, 
+                                channel_description=?, 
+                                channel_subscibers=? 
+                                where channel_id=?'''
         data = (
             channel_details['channel_name'],
             int(channel_details['channel_views']),
-            channel_details['channel_desc'],
+            channel_details['channel_description'],
             int(channel_details['subscriber_count']),
             channel_details['channel_id'],
         )
     else:
-        query = 'INSERT INTO channel values (%s,%s,%s,%s,%s)'
+        query = 'INSERT INTO channel values (?,?,?,?,?)'
         data = (
             channel_details['channel_id'],
             channel_details['channel_name'],
@@ -210,22 +209,80 @@ def AppendChannelDetails(mycursor,channel_details,isPresent):
             int(channel_details['subscriber_count'])
         )
     mycursor.execute(query,data)
+    
+# inserting / updating video and comment details in sql
+def AppendVideoAndCommentDetails(mycursor,
+                                 video_details,
+                                 playlist_id,
+                                 channel_id,
+                                 isPresent):
+    if (isPresent):
+        query = """DELETE FROM Comment where video_id IN 
+            (SELECT video_id from Video as v WHERE v.channel_id=?)"""
+        data = (channel_id,)
+        mycursor.execute(query,data)
+        query = 'DELETE FROM Video where channel_id=?'
+        data = (channel_id,)
+        mycursor.execute(query,data)
+        
+    for video in video_details.keys():
+        duration = convert_to_HH_MM_SS(video_details[video]['duration'])
+        pub_date = parse_date(video_details[video]['published_at'])
+        like_count = video_details[video]['like_count']
+        com_count = video_details[video]['commentcount']
+        query = """ INSERT INTO Video values
+                    (?,?,?,?,?,?,?,?,?,?,?,?,?) """
+        data = (
+            video_details[video]['video_id'],
+            playlist_id,
+            video_details[video]['video_name'],
+            video_details[video]['video_desc'],
+            pub_date,
+            int(video_details[video]['view_count']),
+            int( 0 if like_count is None else like_count),
+            int(video_details[video]['favorite_count']),
+            int(0 if com_count is None else com_count),
+            duration,
+            video_details[video]['thumbnail']['default_thumbnail_url'],
+            video_details[video]['caption_status'],
+            channel_id
+        )
+        mycursor.execute(query,data)
+
+        if(video_details[video]['comments'] is None):
+            continue
+            
+        for comment in video_details[video]['comments'].keys():
+
+            com_pub_date = \
+            parse_date(video_details[video]['comments'][comment]['comment_published_at'])
+
+            query = 'INSERT INTO Comment values (?,?,?,?,?)'
+            data = (
+                video_details[video]['comments'][comment]['comment_id'],
+                video_details[video]['video_id'],
+                video_details[video]['comments'][comment]['comment_text'],
+                video_details[video]['comments'][comment]['comment_author'],
+                com_pub_date,
+            )
+            mycursor.execute(query,data)
+
 #---------------------------------------------
 def MigratingDataToSQL(mycursor,channel_data):
-    query = 'select count(*) from channel where channel_id=%s'
-    data = (channel_data[0]['channel_details']['channel_id'],)
+    query = 'select count(*) from Channel where channel_id=?'
+    data = (channel_data[0]['channel_id'],)
     mycursor.execute(query,data)
     isPresent = 0
     for i in mycursor:
         isPresent = i[0]
     AppendChannelDetails (mycursor,
-                        channel_data[0]['channel_details']['channel_details'],
+                        channel_data[0]['channel_details'],
                         isPresent)
-# AppendVideoAndCommentDetails(mycursor,
-#                              channel_data[0]['video_details'],
-#                              channel_data[0]['channel_details']['playlist_id'],
-#                              channel_data[0]['channel_details']['channel_id'],
-#                              isPresent)
+    AppendVideoAndCommentDetails(mycursor,
+                                  channel_data[0]['video_details'],
+                                  channel_data[0]['channel_details']['playList_id'],
+                                  channel_data[0]['channel_id'],
+                                  isPresent)
 
 #---------------------------------------
 # -------------- Query Execution in SQL ---------------
@@ -287,11 +344,9 @@ def main():
                     status.write(":green[Scrapped Data Successfully]")
                     with st.expander("View JSON Format"):
                         st.json(channel_data)
-                    if(st.button('Load To MongoDB')):
-                        MigratingDataToMongoDb(table,channel_data)
-                        if(st.button('Load To SQL')):
-                            MigratingDataToSQL(mycursor,channel_data)
-                            mydb.commit()
+                    MigratingDataToMongoDb(table,channel_data)
+                    MigratingDataToSQL(mycursor,channel_data)
+                    mydb.commit()
 
     # "About" tab population
     with tab2:
