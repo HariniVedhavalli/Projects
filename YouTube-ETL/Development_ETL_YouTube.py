@@ -189,7 +189,7 @@ def AppendChannelDetails(mycursor,channel_details,isPresent):
     if (isPresent):
         query = '''UPDATE channel SET channel_name=?, 
                                 channel_views=?, 
-                                channel_description=?, 
+                                channel_desc=?, 
                                 channel_subscibers=? 
                                 where channel_id=?'''
         data = (
@@ -291,7 +291,7 @@ def ExecuteQuery(mycursor,query):
     mycursor.execute(query)
     res=mycursor.fetchall()
     field_headings=[i[0] for i in mycursor.description]
-    return pd.DataFrame(res,columns=field_headings)
+    return pd.DataFrame.from_records(res,columns=field_headings)
 # -------------- Main Method ---------------
 
 def main():
@@ -319,43 +319,48 @@ def main():
 
     # streamlit page setup
     st.set_page_config(
-        page_title = "Youtube DataWarehousing",
+        page_title = "Channel Insight",
 
         page_icon = \
             ":black_right_pointing_triangle_with_double_vertical_bar:",
 
         initial_sidebar_state = "collapsed"
         )
-    tab1, tab2, tab3, tab4 = st.tabs(["Home", 
-                                            "About", 
-                                            "Query", 
-                                            "View"])
+    tab1, tab2, tab3, tab4 = st.tabs([ "About",
+                                    "Home",                                            
+                                    "Query", 
+                                    "View"])
 
     # streamlit portal design
     # "Home" tab population
-    with tab1:
-        st.header("Youtube DataWarehousing")
-        channel_id_value = st.text_input('Enter the Channel ID to Scrap')
+    with tab2:
+        st.header("Explore & Analyze YouTube Channels")
+        channel_id_value = st.text_input('Enter the Channel ID to Extract')
         if(channel_id_value != ""):
-            if(st.button('Scrap')):
+            if(st.button('Extract')):
                 status = st.empty()
                 channel_data = GetChannelIds(channel_id_value,status)
                 if(channel_data != -1):
-                    status.write(":green[Scrapped Data Successfully]")
-                    with st.expander("View JSON Format"):
+                    status.write(":green[Extracted Data Successfully]")
+                    with st.expander("View  Extracted Data in JSON Format"):
                         st.json(channel_data)
                     MigratingDataToMongoDb(table,channel_data)
-                    MigratingDataToSQL(mycursor,channel_data)
+                    query = {'channel_details.channel_id':channel_id_value}
+                    project = {'_id':0}
+                    res = table.find(query,project)
+                    MigratingDataToSQL(mycursor,res)
                     mydb.commit()
 
     # "About" tab population
-    with tab2:
+    with tab1:
         st.header("About")
-        st.write("""Want to extract details of any youtube channel and analyse
-                 the data in it - Here you go... This website aims at
-                 scrapping the youtube channel details with channel ID.
-                 Also, it provides the room for querying, viewing and
-                 the channel data scrapped.\n""")
+        st.write("""Welcome to our platform designed to extract and analyze insightful details from YouTube channels! 
+                    Our website is dedicated to scraping YouTube channel data using their unique channel IDs. 
+                    We provide an interface for querying and visualizing the scraped channel data, empowering users 
+                    to gain valuable insights.
+                    Unlock the potential of YouTube data analysis with our user-friendly tools. Dive into the metrics, trends, 
+                    and statistics derived from the channels you're interested in. Enhance your understanding and make informed decisions based 
+                    on the insights our platform provides.""")
 
     # "Query" tab population   
     with tab3:
